@@ -88,14 +88,14 @@ python receiver.py
 
 ## Key Features
 
-✅ **Real-time USB Camera Streaming** using GStreamer.\
-✅ **UDP Transmission** for fast data transfer.\
-✅ **PyQt GUI** to display the video stream.\
-✅ **RTP-based Compression** using JPEG encoding.
+**Real-time USB Camera Streaming** using GStreamer.\
+**UDP Transmission** for fast data transfer.\
+**PyQt GUI** to display the video stream.\
+**RTP-based Compression** using JPEG encoding.
 
 ---
 
-## 🏗 Future Improvements
+## Future Improvements
 
 - Support for **multiple clients** (broadcast streaming).
 - Add a **recording feature** to save the stream.
