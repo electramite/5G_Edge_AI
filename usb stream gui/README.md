@@ -95,6 +95,12 @@ python receiver.py
 
 ---
 
+## Note
+
+**1.** If two receivers are there for single stream then it may not be able to serve for multiple receivers, better to use correct pipeline (receiving format) with single receiver for this method atleast.  
+**2.** Also we can change the video encoding format for low latency but video quality will be the cost.
+
+
 ## Future Improvements
 
 - Support for **multiple clients** (broadcast streaming).
