@@ -1,76 +1,103 @@
-# GStreamer RTSP Webcam Streaming (Windows to Linux or Raspberry Pi)
 
-## Overview
-This guide explains how to stream a webcam over RTSP using **GStreamer** on Windows and receive the stream on a **Raspberry Pi**.
+# RTSP Server on Raspberry Pi/Linux (for video transmission)
 
----
-## Installation
-### 1. Install GStreamer on Windows
-1. Download GStreamer from [GStreamer Official Site](https://gstreamer.freedesktop.org/download/)
-2. Install the **MSVC Runtime** version (Full Installation)
-3. Add the GStreamer `bin` path to your **System Environment Variables**:
-   ```
-   C:\gstreamer\1.0\msvc_x86_64\bin
-   ```
+This guide demonstrates how to set up an RTSP (Real-Time Streaming Protocol) server on a Raspberry Pi to stream video from a USB webcam using GStreamer. The RTSP stream can be accessed on another device (like another Raspberry Pi or computer) to view the live video feed.
 
-### 2. Install PyGObject (gi) on Windows
-GStreamer requires **PyGObject** for Python support.
+## Requirements
 
-#### **Step 1: Install Dependencies**
-1. Install **MSYS2** from [https://www.msys2.org/](https://www.msys2.org/)
-2. Open **MSYS2 MinGW 64-bit** terminal and run:
-   ```sh
-   pacman -S mingw-w64-x86_64-gtk3 mingw-w64-x86_64-python-gobject
-   ```
-3. Close MSYS2.
+- Raspberry Pi (Raspberry Pi 1 for the RTSP server and Raspberry Pi 2 or another device to access the stream)
+- USB webcam
+- GStreamer installed on Raspberry Pi
 
-#### **Step 2: Install Python Modules**
-Run these commands in **Command Prompt (cmd)**:
-```sh
-pip install pycairo
-pip install PyGObject
+## Prerequisites
+
+Before setting up the RTSP server, you need to install the necessary dependencies on Raspberry Pi. You can do this using the following commands:
+
+```bash
+sudo apt update
+sudo apt install gstreamer1.0-tools gstreamer1.0-rtsp gstreamer1.0-plugins-good
 ```
 
-### Install GStreamer on Raspberry Pi
-On your **Raspberry Pi**, install GStreamer with:
-```sh
-sudo apt update && sudo apt install -y gstreamer1.0-tools gstreamer1.0-rtsp gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+## Steps
+
+### 1. RTSP Server Setup on Raspberry Pi
+
+Create a Python script to stream the video from the USB webcam:
+
+```bash
+nano rtsp-server.py
 ```
 
----
-## Start RTSP Streaming (Windows)
+Paste the following code into the script:
 
-Run the script:
-```sh
-python rtsp_server.py
+```python
+import gi
+gi.require_version('Gst', '1.0')
+gi.require_version('GstRtspServer', '1.0')
+gi.require_version('GObject', '2.0')
+from gi.repository import Gst, GstRtspServer, GObject
+
+# Initialize GStreamer
+Gst.init(None)
+
+# Create RTSP server
+class RTSPServer:
+    def __init__(self):
+        self.server = GstRtspServer.RTSPServer()
+        self.server.set_service("8554")
+        
+        # Create a mount point
+        self.mounts = self.server.get_mount_points()
+        self.factory = GstRtspServer.RTSPMediaFactory()
+        
+        # Set up media pipeline for streaming
+        self.factory.set_launch("v4l2src device=/dev/video0 ! videoconvert ! "
+                                "video/x-raw,format=I420,width=640,height=480 ! "
+                                "jpegenc ! rtpjpegpay ! rtspclientsink")
+        
+        # Attach the media to the server
+        self.mounts.add_factory("/stream", self.factory)
+        
+    def start(self):
+        self.server.attach(None)
+        print("RTSP server is running at rtsp://<raspberry_pi_ip>:8554/stream")
+        loop = GObject.MainLoop()
+        loop.run()
+
+# Start RTSP server
+if __name__ == "__main__":
+    server = RTSPServer()
+    server.start()
 ```
 
----
-## Access RTSP Stream on Raspberry Pi
-To receive and view the stream, run this command on your **Raspberry Pi**:
-```sh
-gst-launch-1.0 -v rtspsrc location=rtsp://<WINDOWS_IP>:8554 ! decodebin ! autovideosink
+### 1. Run the RTSP Server
+
+Run the script on the Raspberry Pi to start the RTSP server:
+
+```bash
+python3 rtsp_streamer.py
 ```
-Replace `<WINDOWS_IP>` with the actual **Windows machine's IP address**.
 
----
-## Troubleshooting
-1. **ModuleNotFoundError: No module named 'gi'**
-   - Ensure **PyGObject** is installed correctly. Reinstall using:
-     ```sh
-     pip install pycairo
-     pip install PyGObject
-     ```
+The RTSP server will start running and can be accessed via `rtsp://<raspberry_pi_ip>:8554/stream`.
 
-2. **RTSP Stream Not Playing on Raspberry Pi**
-   - Ensure **GStreamer** is installed (`gstreamer1.0-tools` package)
-   - Check Windows Firewall settings (allow UDP on port **8554**)
-   - Verify **Windows IP address** is correct
+### 2. Access the Stream on Another Device
 
----
-## Summary
-**Windows** streams webcam using **GStreamer RTSP**  
-**Raspberry Pi** receives the stream via **GStreamer RTSP Source**
+To access the video stream on another device, you can use an RTSP player such as VLC or GStreamer.
 
-Enjoy real-time streaming! 🚀
+#### Using VLC:
+Open VLC and click `Media -> Open Network Stream`, then enter:
 
+```
+rtsp://<raspberry_pi_ip>:8554/stream
+```
+
+#### Using GStreamer:
+You can also use GStreamer to receive and display the stream. Run the following command on another device:
+
+```bash
+gst-launch-1.0 rtspsrc location=rtsp://<raspberry_pi_ip>:8554/stream ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink
+```
+
+### Conclusion
+
+You have successfully set up an RTSP server on your Raspberry Pi to stream video from a USB webcam. The video stream can be accessed from another device using RTSP players like VLC or GStreamer.

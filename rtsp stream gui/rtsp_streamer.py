@@ -1,35 +1,37 @@
 import gi
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtspServer', '1.0')
-
+gi.require_version('GObject', '2.0')
 from gi.repository import Gst, GstRtspServer, GObject
 
-class WebcamRTSPServer(GstRtspServer.RTSPMediaFactory):
-    def __init__(self):
-        super(WebcamRTSPServer, self).__init__()
-        self.set_shared(True)
+# Initialize GStreamer
+Gst.init(None)
 
-    def do_create_element(self, url):
-        pipeline_str = (
-            "ksvideosrc ! videoconvert ! video/x-raw,width=640,height=480,framerate=30/1 ! "
-            "x264enc tune=zerolatency bitrate=500 speed-preset=ultrafast ! rtph264pay config-interval=1 name=pay0 pt=96"
-        )
-        return Gst.parse_launch(pipeline_str)
-
+# Create RTSP server
 class RTSPServer:
     def __init__(self):
         self.server = GstRtspServer.RTSPServer()
-        self.server.set_service("8554")  # RTSP Port
-        self.factory = WebcamRTSPServer()
-        self.factory.set_shared(True)
-        self.server.get_mount_points().add_factory("/webcam", self.factory)
+        self.server.set_service("8554")
+        
+        # Create a mount point
+        self.mounts = self.server.get_mount_points()
+        self.factory = GstRtspServer.RTSPMediaFactory()
+        
+        # Set up media pipeline for streaming
+        self.factory.set_launch("v4l2src device=/dev/video0 ! videoconvert ! "
+                                "video/x-raw,format=I420,width=640,height=480 ! "
+                                "jpegenc ! rtpjpegpay ! rtspclientsink")
+        
+        # Attach the media to the server
+        self.mounts.add_factory("/stream", self.factory)
+        
+    def start(self):
         self.server.attach(None)
+        print("RTSP server is running at rtsp://<raspberry_pi_ip>:8554/stream")
+        loop = GObject.MainLoop()
+        loop.run()
 
-    def run(self):
-        print("RTSP Stream available at rtsp://127.0.0.1:8554/webcam")
-        GObject.MainLoop().run()
-
+# Start RTSP server
 if __name__ == "__main__":
-    Gst.init(None)
     server = RTSPServer()
-    server.run()
+    server.start()
