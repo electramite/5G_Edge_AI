@@ -58,6 +58,4 @@ You can now distribute `qttest.exe` as a standalone application!
   dist/qttest.exe
   ```
 
-## License
-This project is licensed under the **MIT License**.
 
