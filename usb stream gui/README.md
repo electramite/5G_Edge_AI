@@ -4,7 +4,7 @@ Demonstrates how to stream a USB camera feed using **GStreamer** over **UDP** an
 
 ---
 
-## 📜 Project Structure
+## Project Structure
 
 ```
 .
@@ -70,7 +70,7 @@ brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plu
 
 ---
 
-## 🎯 How to Run
+## How to Run
 
 ### **1. Start the Sender** (Stream the USB camera):
 
