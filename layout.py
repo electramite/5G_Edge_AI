@@ -10,14 +10,13 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 from PyQt5.QtCore import QUrl, QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QPalette, QColor, QFont
-# from PyQt5.QtWidgets import QSizePolicy
-# from PyQt5.QtWidgets import QMessageBox
 import numpy as np
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QTimer
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
+import time 
 import psutil
 import shutil
 import os 
@@ -91,6 +90,11 @@ class DetectionApp(QWidget):
         self.initGStreamer()
 
         self.process = None
+        self.last_frame_time = None
+        self.fps_counter = 0
+        self.total_fps = 0.0
+        self.metadata_history_len = 20
+        self.metadata_history = []
 
     def initUI(self):
         main_layout = QHBoxLayout()
@@ -101,6 +105,8 @@ class DetectionApp(QWidget):
         self.infer_combo = QComboBox()
         self.infer_combo.addItems(["detection", "Segmentation", "PoseEstimation"])
         self.infer_combo.currentTextChanged.connect(self.update_hef_dropdown)
+        self.infer_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.infer_combo.setMaximumWidth(180) 
         control_layout.addWidget(self.infer_label)
         control_layout.addWidget(self.infer_combo)
         
@@ -109,6 +115,8 @@ class DetectionApp(QWidget):
         self.hef_dropdown = QComboBox()
         self.hef_dropdown.addItem("Upload Model")
         self.hef_dropdown.activated.connect(self.handle_hef_selection)
+        self.hef_dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.hef_dropdown.setMaximumWidth(180) 
         control_layout.addWidget(self.hef_label)
         control_layout.addWidget(self.hef_dropdown)
         self.update_hef_dropdown()
@@ -130,30 +138,16 @@ class DetectionApp(QWidget):
 
         self.input_dropdown = QComboBox()
         self.input_dropdown.addItems(get_available_cameras())
+        self.input_dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.input_dropdown.setMaximumWidth(180) 
         control_layout.addWidget(self.input_dropdown)
 
         self.rtsp_input = QLineEdit()
         self.rtsp_input.setPlaceholderText("Enter RTSP URL")
         self.rtsp_input.setVisible(False)
+        self.rtsp_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.rtsp_input.setMaximumWidth(180) 
         control_layout.addWidget(self.rtsp_input)
-
-        # # Input Source Selection
-        # self.input_label = QLabel("Select Input Source:")
-        # self.input_combo = QComboBox()
-        # self.input_combo.addItems(["RTSP", "/dev/video0"])
-        # self.input_combo.currentIndexChanged.connect(self.toggleInputField)
-        # control_layout.addWidget(self.input_label)
-        # control_layout.addWidget(self.input_combo)
-        # self.input_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # self.input_combo.setMaximumWidth(120)
-
-        # # Input Field
-        # self.rtsp_label = QLabel("RTSP URL or Device Path:")
-        # self.rtsp_input = QLineEdit()
-        # control_layout.addWidget(self.rtsp_label)
-        # control_layout.addWidget(self.rtsp_input)
-        # self.rtsp_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # self.rtsp_input.setMaximumWidth(120)
 
         # IOU Threshold
         self.iou_label = QLabel("IOU Threshold:")
@@ -164,7 +158,7 @@ class DetectionApp(QWidget):
         control_layout.addWidget(self.iou_label)
         control_layout.addWidget(self.iou_input)
         self.iou_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.iou_input.setMaximumWidth(120) 
+        self.iou_input.setMaximumWidth(180) 
 
         # Confidence Threshold
         self.conf_label = QLabel("Confidence Threshold:")
@@ -175,16 +169,12 @@ class DetectionApp(QWidget):
         control_layout.addWidget(self.conf_label)
         control_layout.addWidget(self.conf_input)
         self.conf_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.conf_input.setMaximumWidth(120) 
+        self.conf_input.setMaximumWidth(180) 
 
-        # Inference Type Selection
-        # self.infer_label = QLabel("Inference Type:")
-        # self.infer_combo = QComboBox()
-        # self.infer_combo.addItems(["detection", "Segmentation", "etc"])
-        # control_layout.addWidget(self.infer_label)
-        # control_layout.addWidget(self.infer_combo)
-        # self.infer_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # self.infer_combo.setMaximumWidth(120) 
+        self.fps_label = QLabel("Avg FPS: 0")
+        # self.fps_label.setStyleSheet("font-size: 10px;")
+        layout = QVBoxLayout()
+        control_layout.addWidget(self.fps_label)
 
         # Horizontal layout for "Save JSON?" section
         save_json_layout = QHBoxLayout()
@@ -209,7 +199,10 @@ class DetectionApp(QWidget):
         self.json_path_input = QLineEdit(self)
         self.json_path_input.setPlaceholderText("Enter JSON path...")
         self.json_path_input.setEnabled(False)  # Initially disabled
+        self.json_path_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.json_path_input.setMaximumWidth(180) 
         control_layout.addWidget(self.json_path_input)
+
 
         # JSON Frame Interval
         self.json_label = QLabel("JSON Frame Interval:")
@@ -221,95 +214,22 @@ class DetectionApp(QWidget):
         control_layout.addWidget(self.json_label)
         control_layout.addWidget(self.json_input)
         self.json_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.json_input.setMaximumWidth(120) 
+        self.json_input.setMaximumWidth(180) 
 
         # Launch Button
         self.launch_button = QPushButton("Run")
         self.launch_button.clicked.connect(self.runDetection)
         control_layout.addWidget(self.launch_button)
         self.launch_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.launch_button.setMaximumWidth(120)
+        self.launch_button.setMaximumWidth(180)
 
         # stop button 
         self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.stopDetection)
         control_layout.addWidget(self.stop_button)
         self.stop_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.stop_button.setMaximumWidth(120)
+        self.stop_button.setMaximumWidth(180)
 
-        # # Video Display Window with Highlighted Border
-        # self.video_frame = QFrame()
-        # self.video_frame.setFixedSize(490, 490)  # Slightly bigger than video
-        # self.video_frame.setStyleSheet("background-color: grey; border: 3px solid black;")
-
-        # self.video_widget = QVideoWidget(self.video_frame)
-        # self.video_widget.setFixedSize(480, 480)  # Fixed video size
-        # self.player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
-        # self.player.setVideoOutput(self.video_widget)
-        # control_layout.addWidget(self.video_frame)
-
-        # # Video Display Window (Moved to Top-Right)
-        # """Initialize the PyQt window."""
-        # self.video_label = QLabel(self)
-        # self.video_label.setFixedSize(480, 480)
-        # self.video_label.setStyleSheet("background-color: black;")
-        # # self.layout.addWidget(self.video_label)
-
-        # # self.setLayout(self.layout)
-
-        # # Timer to refresh video frame
-        # self.timer = QTimer()
-        # self.timer.timeout.connect(self.update_frame)
-        # self.timer.start(30)  # Refresh every 30ms
-        # #################################################
-        # video_layout = QVBoxLayout() 
-
-        # self.video_label = QLabel()
-        # self.video_label.setFixedSize(490, 490)  # Slightly bigger than video
-        # self.video_label.setStyleSheet("background-color: grey; border: 3px solid black;")
-
-        # self.timer = QTimer()
-        # self.timer.timeout.connect(self.update_frame)
-        # self.timer.start(30)  # Refresh every 30ms
-
-        # self.video_widget = QVideoWidget(self.video_label)
-        # self.video_widget.setFixedSize(480, 480)  # Fixed video size
-        # self.player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
-        # self.player.setVideoOutput(self.video_widget)
-        # # control_layout.addWidget(self.video_label)       
-        # video_layout.addWidget(self.video_label) 
-        # main_layout.addLayout(video_layout)
-        # #################################################
-
-        # Metadata Display
-        # self.metadata_label = QLabel("Model Metadata:")
-        # self.metadata_display = QTextEdit()
-        # self.metadata_display.setReadOnly(True)
-        # self.metadata_display.setFixedHeight(150)  # Reduce height by 50%
-        # self.metadata_display.setStyleSheet("background-color: black; color: orange; font-family: monospace;")
-        # self.metadata_display.setFont(QFont("Courier", 10))
-        # main_layout.addLayout(control_layout)
-        # main_layout.addWidget(self.metadata_label)
-        # main_layout.addWidget(self.metadata_display)
-
-        #################################################
-        # video_layout = QVBoxLayout() 
-        # video_layout.setContentsMargins(0, 0, 0, 0) 
-        # self.video_label = QLabel()
-        # self.video_label.setFixedSize(490, 300)  # Slightly bigger than video
-        # self.video_label.setStyleSheet("background-color: grey; border: 3px solid black;")
-
-        # self.timer = QTimer()
-        # self.timer.timeout.connect(self.update_frame)
-        # self.timer.start(30)  # Refresh every 30ms
-
-        # self.video_widget = QVideoWidget(self.video_label)
-        # self.video_widget.setFixedSize(480, 300)  # Fixed video size
-        # self.player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
-        # self.player.setVideoOutput(self.video_widget)
-        # # control_layout.addWidget(self.video_label)       
-        # video_layout.addWidget(self.video_label) 
-        # main_layout.addLayout(video_layout)
 
         video_layout = QVBoxLayout()
         video_layout.setContentsMargins(0, 0, 0, 0)
@@ -326,7 +246,7 @@ class DetectionApp(QWidget):
 
         self.video_widget = QVideoWidget(self.video_label)
 
-        # Make QVideoWidget resize dynamically
+        # # Make QVideoWidget resize dynamically
         self.video_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
@@ -438,6 +358,14 @@ class DetectionApp(QWidget):
         if len(rtsp_url) == 0:
             QMessageBox.critical(self, "Error", "Please enter the RTSP URL.")
             return False  
+        # Warning for JSON path
+        if self.radio_yes.isChecked():
+            json_path = self.json_path_input.text()
+            if len(json_path) == 0:
+                QMessageBox.critical(self, "Error", "Please enter JSON path")
+                return False
+
+
         if self.radio_yes.isChecked():
             json_frame = self.json_input.value()  
         else:
@@ -483,7 +411,13 @@ class DetectionApp(QWidget):
         self.socket_thread.start()
     
     def updateMetadata(self, data):
-        self.metadata_display.setText(data)
+        self.metadata_history.append(data)
+        if len(self.metadata_history) > self.metadata_history_len:
+            self.metadata_history.pop(0)
+
+        self.metadata_display.setText("\n".join(self.metadata_history))
+
+        # self.metadata_display.setText(data)
 
     def initGStreamer(self):
         """Initialize the GStreamer pipeline to receive UDP video."""
@@ -509,6 +443,7 @@ class DetectionApp(QWidget):
 
         self.appsink.set_property("emit-signals", True)
         self.appsink.connect("new-sample", self.on_new_sample)
+        # self.appsink.connect("fps-measurements", self.on_fps_measurement)
 
         # Start GStreamer pipeline
         ret = self.pipeline.set_state(Gst.State.PLAYING)
@@ -528,6 +463,19 @@ class DetectionApp(QWidget):
                 frame = np.frombuffer(map_info.data, np.uint8).reshape((height, width, 3))
                 self.display_frame(frame)
                 buf.unmap(map_info)
+
+            current_time = time.time()
+            if self.last_frame_time:
+                delta = current_time - self.last_frame_time
+                if delta > 0:
+                    fps = 1 / delta
+                    self.total_fps += fps
+                    self.fps_counter += 1
+                    avg_fps = self.total_fps / self.fps_counter
+                    # print(f"Instant FPS: {fps:.2f} | Avg FPS: {avg_fps:.2f}")
+                    self.fps_label.setText(f"Avg FPS: {avg_fps:.2f}")
+            self.last_frame_time = current_time
+
         return Gst.FlowReturn.OK
 
     def display_frame(self, frame):
@@ -537,8 +485,16 @@ class DetectionApp(QWidget):
         q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_BGR888)
 
         # Scale image to fit 480x480
-        scaled_img = q_img.scaled(720, 1080, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        label_width = self.video_label.width()
+        label_height = self.video_label.height()
+        if label_width > 1080 or label_height > 720:  # Adjust limits as per your UI
+            label_width = 1080
+            label_height = 720
+        print(f"{label_height} {label_width}")
+        scaled_img = q_img.scaled(label_width, label_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # self.video_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.video_label.setPixmap(QPixmap.fromImage(scaled_img))
+        # print("called")
 
     def update_frame(self):
         """Force repaint the QLabel to refresh the video display."""
