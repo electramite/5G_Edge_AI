@@ -422,7 +422,7 @@ class DetectionApp(QWidget):
     def initGStreamer(self):
         """Initialize the GStreamer pipeline to receive UDP video."""
         Gst.init(None)
-        ## Pipeline with low resolution
+
         # pipeline_str = (
         #     "udpsrc port=5000 caps=\"application/x-rtp,encoding-name=H264,payload=96\" ! "
         #     "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! "
@@ -492,7 +492,9 @@ class DetectionApp(QWidget):
             label_height = 720
         print(f"{label_height} {label_width}")
         scaled_img = q_img.scaled(label_width, label_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # self.video_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.video_label.setPixmap(QPixmap.fromImage(scaled_img))
+        # print("called")
 
     def update_frame(self):
         """Force repaint the QLabel to refresh the video display."""
